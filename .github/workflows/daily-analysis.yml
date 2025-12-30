@@ -1,0 +1,64 @@
+name: Daily Architecture Analysis
+
+on:
+  schedule:
+    # Run daily at 6:00 AM UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    # Allow manual trigger with optional force flag
+    inputs:
+      force:
+        description: 'Force re-analyze all repos (ignore cache)'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  GITHUB_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
+  LOCAL_TESTING: "false"
+  SKIP_DYNAMODB_CHECK: "true"
+  PROMPT_CONTEXT_STORAGE: "file"
+  ARCH_HUB_REPO_NAME: "architecture-hub"
+  ARCH_HUB_BASE_URL: "https://github.com/thenvoi"
+  DEFAULT_ORG_NAME: "thenvoi"
+  GIT_USER_NAME: "Architecture Bot"
+  GIT_USER_EMAIL: "bot@thenvoi.com"
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 2 hour timeout for full analysis
+
+    steps:
+      - name: Checkout repo-swarm
+        uses: actions/checkout@v4
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+
+      - name: Install Python dependencies
+        run: |
+          mise install
+          mise run dev-dependencies || true
+
+      - name: Start Temporal server
+        run: |
+          temporal server start-dev &
+          sleep 10  # Wait for server to start
+
+      - name: Run architecture analysis
+        run: |
+          if [ "${{ github.event.inputs.force }}" == "true" ]; then
+            mise investigate-all force
+          else
+            mise investigate-all
+          fi
+
+      - name: Upload analysis artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: architecture-analysis-${{ github.run_id }}
+          path: temp/
+          retention-days: 7
