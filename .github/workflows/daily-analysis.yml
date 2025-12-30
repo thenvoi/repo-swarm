@@ -28,7 +28,7 @@ env:
 jobs:
   analyze:
     runs-on: ubuntu-latest
-    timeout-minutes: 120  # 2 hour timeout for full analysis
+    timeout-minutes: 240  # 4 hour timeout for full analysis
 
     steps:
       - name: Checkout repo-swarm
