@@ -69,9 +69,10 @@ jobs:
         run: |
           # Activate virtual environment
           source .venv/bin/activate
+          cd src
 
           # Start worker in background
-          cd src && python -m investigate_worker &
+          python -m investigate_worker &
           WORKER_PID=$!
           sleep 5
           echo "Worker started with PID: $WORKER_PID"
