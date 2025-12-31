@@ -5,7 +5,6 @@ on:
     # Run daily at 6:00 AM UTC
     - cron: '0 6 * * *'
   workflow_dispatch:
-    # Allow manual trigger with optional force flag
     inputs:
       force:
         description: 'Force re-analyze all repos (ignore cache)'
@@ -16,7 +15,7 @@ on:
 env:
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   GITHUB_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
-  LOCAL_TESTING: "false"
+  LOCAL_TESTING: "true"
   SKIP_DYNAMODB_CHECK: "true"
   PROMPT_CONTEXT_STORAGE: "file"
   ARCH_HUB_REPO_NAME: "architecture-hub"
@@ -34,31 +33,66 @@ jobs:
       - name: Checkout repo-swarm
         uses: actions/checkout@v4
 
-      - name: Install mise
-        uses: jdx/mise-action@v2
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: Install Python dependencies
+      - name: Install uv
         run: |
-          mise install
-          mise run dev-dependencies || true
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv sync --python 3.12
+          echo "Dependencies installed"
+
+      - name: Install Temporal CLI
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> $GITHUB_PATH
 
       - name: Start Temporal server
         run: |
           temporal server start-dev &
-          sleep 10  # Wait for server to start
+          sleep 10
+          echo "Temporal server started"
 
-      - name: Run architecture analysis
+      - name: Verify configuration
         run: |
+          echo "Checking environment..."
+          echo "ANTHROPIC_API_KEY is set: ${{ secrets.ANTHROPIC_API_KEY != '' }}"
+          echo "GITHUB_TOKEN is set: ${{ secrets.GH_PAT_TOKEN != '' }}"
+
+      - name: Start worker and run analysis
+        run: |
+          # Activate virtual environment
+          source .venv/bin/activate
+
+          # Start worker in background
+          cd src && python -m investigate_worker &
+          WORKER_PID=$!
+          sleep 5
+          echo "Worker started with PID: $WORKER_PID"
+
+          # Run the analysis
           if [ "${{ github.event.inputs.force }}" == "true" ]; then
-            mise investigate-all force
+            python -m client investigate --force
           else
-            mise investigate-all
+            python -m client investigate
           fi
+
+          # Cleanup
+          kill $WORKER_PID || true
 
       - name: Upload analysis artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: architecture-analysis-${{ github.run_id }}
-          path: temp/
+          path: |
+            temp/
+            *.md
           retention-days: 7
+          if-no-files-found: warn
