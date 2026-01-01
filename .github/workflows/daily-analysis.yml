@@ -2,8 +2,8 @@ name: Daily Architecture Analysis
 
 on:
   schedule:
-    # Run daily at 4:00 AM UTC (6:00 AM UTC+2)
-    - cron: '0 4 * * *'
+    # Run daily at 1:00 AM UTC (3:00 AM UTC+2)
+    - cron: '0 1 * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -27,7 +27,7 @@ env:
 jobs:
   analyze:
     runs-on: ubuntu-latest
-    timeout-minutes: 420  # 7 hour timeout for full analysis
+    timeout-minutes: 720  # 12 hour timeout for full analysis
 
     steps:
       - name: Checkout repo-swarm

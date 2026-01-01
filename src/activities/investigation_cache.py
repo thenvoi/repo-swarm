@@ -350,29 +350,27 @@ class InvestigationCache:
         last_prompt_metadata: Any,
         last_investigation: Any
     ) -> Optional[InvestigationDecision]:
-        """Check if prompts have been updated when no previous metadata exists."""
+        """Check if prompts have been updated when no previous metadata exists.
+
+        Note: When there's no previous prompt metadata to compare against,
+        we skip version-based re-investigation. We can only detect changes
+        when we have previous versions to compare with. The commit hash check
+        already handles detecting code changes.
+        """
         # Handle both Pydantic model and raw dict
         has_versions = False
         if isinstance(last_prompt_metadata, PromptMetadata):
             has_versions = bool(last_prompt_metadata.versions)
         elif last_prompt_metadata:
             has_versions = bool(last_prompt_metadata.get('versions', {}))
-        
+
         if not last_prompt_metadata or not has_versions:
-            # Check if any current prompt has version > 1
-            for prompt_name, current_version in current_prompt_versions.items():
-                if current_version != "1":
-                    self.logger.info(
-                        f"✅ DECISION: Prompt '{prompt_name}' has version {current_version} but no previous version tracking - NEEDS INVESTIGATION"
-                    )
-                    return InvestigationDecision(
-                        needs_investigation=True,
-                        reason=f"Prompt '{prompt_name}' updated to v{current_version} (no previous version tracking)",
-                        latest_commit=current_state.commit_sha,
-                        branch_name=current_state.branch_name,
-                        last_investigation=self._get_raw_investigation_data(last_investigation)
-                    )
-            self.logger.info(f"   No prompt metadata from last investigation, all current prompts are v1 - treating as unchanged")
+            # No previous prompt metadata - skip version-based checks
+            # We can't determine if prompts changed without baseline data
+            self.logger.info(
+                f"   No prompt metadata from last investigation - skipping prompt version checks "
+                f"(commit hash check already handles code changes)"
+            )
         return None
     
     def _check_prompt_count_changes(
