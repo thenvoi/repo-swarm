@@ -202,6 +202,7 @@ class InvestigationResult(BaseModel):
 class InvestigateReposRequest(BaseModel):
     """Input parameters for multi-repository investigation workflow."""
     force: bool = Field(default=False, description="Force investigation of all repos ignoring cache")
+    single_run: bool = Field(default=False, description="Run once and exit (don't sleep and continue-as-new). Use for CI/CD.")
     claude_model: Optional[str] = Field(None, description="Override the Claude model to use")
     max_tokens: Optional[int] = Field(None, ge=1, le=200000, description="Override the max tokens")
     sleep_hours: Optional[float] = Field(None, ge=0.1, le=168.0, description="Hours to sleep between executions")

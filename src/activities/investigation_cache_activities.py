@@ -1,8 +1,11 @@
 """
-Activities for managing investigation caching using DynamoDB.
+Activities for managing investigation caching.
 
 These activities handle checking if a repository needs investigation
 and saving investigation metadata for future checks.
+
+Supports both DynamoDB (production) and file-based (local/CI) storage backends
+based on the PROMPT_CONTEXT_STORAGE environment variable.
 """
 
 import os
@@ -18,6 +21,28 @@ from models.activities import CacheCheckInput, CacheCheckOutput, SaveMetadataInp
 
 # Set up logging
 logger = logging.getLogger(__name__)
+
+
+def _get_storage_client(repo_name: str):
+    """
+    Get the appropriate storage client based on PROMPT_CONTEXT_STORAGE env var.
+
+    Args:
+        repo_name: Repository name (needed for file-based storage initialization)
+
+    Returns:
+        Storage client instance (either DynamoDB or file-based)
+    """
+    storage_backend = os.environ.get('PROMPT_CONTEXT_STORAGE', 'auto')
+
+    if storage_backend == 'file':
+        logger.info(f"Using file-based storage backend for {repo_name}")
+        from utils.prompt_context_file import FileBasedPromptContextManager
+        return FileBasedPromptContextManager(repo_name)
+    else:
+        logger.info(f"Using DynamoDB storage backend for {repo_name}")
+        from utils.dynamodb_client import get_dynamodb_client
+        return get_dynamodb_client()
 
 
 @activity.defn
@@ -53,12 +78,11 @@ async def check_if_repo_needs_investigation(
         )
         
         activity.logger.info(f"📊 Repository state: commit={current_state.commit_sha[:8]}, branch={current_state.branch_name}, uncommitted={current_state.has_uncommitted_changes}")
-        
-        # Get DynamoDB client and create cache instance
-        activity.logger.info(f"🗃️  Creating DynamoDB client and cache instance")
-        from utils.dynamodb_client import get_dynamodb_client
-        dynamodb_client = get_dynamodb_client()
-        cache = InvestigationCache(dynamodb_client)
+
+        # Get storage client based on environment configuration
+        activity.logger.info(f"🗃️  Creating storage client and cache instance")
+        storage_client = _get_storage_client(input_params.repo_name)
+        cache = InvestigationCache(storage_client)
         
         # Check if investigation is needed
         activity.logger.info(f"🔍 Calling cache.check_needs_investigation...")
@@ -103,11 +127,14 @@ async def save_investigation_metadata(
     input_params: SaveMetadataInput
 ) -> SaveMetadataOutput:
     """
-    Save investigation metadata to DynamoDB for future caching checks.
-    
+    Save investigation metadata for future caching checks.
+
+    Uses the storage backend configured via PROMPT_CONTEXT_STORAGE env var
+    (DynamoDB for production, file-based for local/CI).
+
     Args:
         input_params: SaveMetadataInput with repository details and analysis data
-    
+
     Returns:
         SaveMetadataOutput with save status
     """
@@ -124,12 +151,10 @@ async def save_investigation_metadata(
         activity.logger.warning(f"   ⚠️  NO PROMPT VERSIONS provided to save metadata")
     
     try:
-        activity.logger.info(f"🗃️  Creating DynamoDB client and cache instance")
-        from utils.dynamodb_client import get_dynamodb_client
-        
-        # Get DynamoDB client and create cache instance
-        dynamodb_client = get_dynamodb_client()
-        cache = InvestigationCache(dynamodb_client)
+        # Get storage client based on environment configuration
+        activity.logger.info(f"🗃️  Creating storage client and cache instance")
+        storage_client = _get_storage_client(input_params.repo_name)
+        cache = InvestigationCache(storage_client)
         
         # Save the investigation metadata
         activity.logger.info(f"💾 Calling cache.save_investigation_metadata...")

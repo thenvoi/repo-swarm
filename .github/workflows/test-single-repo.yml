@@ -1,13 +1,15 @@
-name: Daily Architecture Analysis
+name: Test Single Repo Analysis
 
 on:
-  schedule:
-    # Run daily at 1:00 AM UTC (3:00 AM UTC+2)
-    - cron: '0 1 * * *'
   workflow_dispatch:
     inputs:
+      repo_name:
+        description: 'Repository name from repos.json to analyze'
+        required: true
+        default: 'thenvoi-platform'
+        type: string
       force:
-        description: 'Force re-analyze all repos (ignore cache)'
+        description: 'Force re-analyze (ignore cache)'
         required: false
         default: 'false'
         type: boolean
@@ -25,11 +27,9 @@ env:
   GIT_USER_EMAIL: "bot@thenvoi.com"
 
 jobs:
-  analyze:
+  analyze-single:
     runs-on: ubuntu-latest
-    # GitHub Actions has a 6-hour (360 min) limit per job for hosted runners.
-    # If you need longer runs, use self-hosted runners or split into multiple jobs.
-    timeout-minutes: 360
+    timeout-minutes: 60  # 1 hour should be enough for a single repo
 
     steps:
       - name: Checkout repo-swarm
@@ -66,8 +66,10 @@ jobs:
           echo "Checking environment..."
           echo "ANTHROPIC_API_KEY is set: ${{ secrets.ANTHROPIC_API_KEY != '' }}"
           echo "GITHUB_TOKEN is set: ${{ secrets.GH_PAT_TOKEN != '' }}"
+          echo "Repository to analyze: ${{ github.event.inputs.repo_name }}"
+          echo "Force mode: ${{ github.event.inputs.force }}"
 
-      - name: Start worker and run analysis
+      - name: Start worker and run single repo analysis
         run: |
           # Activate virtual environment
           source .venv/bin/activate
@@ -79,12 +81,13 @@ jobs:
           sleep 5
           echo "Worker started with PID: $WORKER_PID"
 
-          # Run the analysis with --single-run to exit after one cycle
-          # (GitHub Actions has a 6-hour limit, so we can't loop indefinitely)
+          # Run the single repo analysis
           if [ "${{ github.event.inputs.force }}" == "true" ]; then
-            python -m client investigate --force --single-run
+            echo "Running with --force flag"
+            python -m client investigate-single "${{ github.event.inputs.repo_name }}" --force
           else
-            python -m client investigate --single-run
+            echo "Running without --force flag (respects cache)"
+            python -m client investigate-single "${{ github.event.inputs.repo_name }}"
           fi
 
           # Cleanup
@@ -94,9 +97,10 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: architecture-analysis-${{ github.run_id }}
+          name: single-repo-analysis-${{ github.event.inputs.repo_name }}-${{ github.run_id }}
           path: |
             temp/
+            src/temp/
             *.md
           retention-days: 7
           if-no-files-found: warn

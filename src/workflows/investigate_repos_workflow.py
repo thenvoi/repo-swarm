@@ -102,34 +102,41 @@ class InvestigateReposWorkflow:
         
         # Run the investigation for this cycle
         result = await self._run_investigation(force=force_current, config_overrides=config_overrides)
-        
+
+        # Check if single_run mode is enabled (for CI/CD environments like GitHub Actions)
+        single_run = request.single_run if request else False
+        if single_run:
+            logger.info("🏁 Single-run mode enabled - returning result without sleep/continue-as-new")
+            return result
+
         # Check if we should continue as new (Temporal's recommendation or after each cycle)
         should_continue = workflow.info().is_continue_as_new_suggested()
         if should_continue:
             logger.info("📊 Temporal suggests Continue-As-New due to event history size")
-        
+
         # Wait before next run (using override or default)
         sleep_hours = config_overrides.sleep_hours or WorkflowConfig.WORKFLOW_SLEEP_HOURS
         logger.info(f"Investigation complete. Waiting {sleep_hours} hours before next run...")
         await workflow.sleep(timedelta(hours=sleep_hours))
         logger.info(f"{sleep_hours} hours elapsed. Continuing as new for next investigation cycle...")
-        
+
         # Continue as new with updated state
         # Prepare the request for the next iteration
         next_request = InvestigateReposRequest(
             force=False,  # Never force after the first iteration
+            single_run=False,  # Don't propagate single_run to subsequent iterations
             claude_model=config_overrides.claude_model,
             max_tokens=config_overrides.max_tokens,
             sleep_hours=config_overrides.sleep_hours,
             chunk_size=config_overrides.chunk_size,
             iteration_count=iteration_count + 1
         )
-        
+
         # Continue the workflow as a new execution
         workflow.continue_as_new(
             args=[next_request, iteration_count + 1]
         )
-        
+
         # This line should never be reached due to continue_as_new
         return result
     

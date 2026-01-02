@@ -16,37 +16,44 @@ from models import InvestigateReposRequest, InvestigateSingleRepoRequest, Config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def run_investigate_repos_workflow(client: Client, force: bool = False, 
-                                      claude_model: str = None, max_tokens: int = None, 
+async def run_investigate_repos_workflow(client: Client, force: bool = False,
+                                      single_run: bool = False,
+                                      claude_model: str = None, max_tokens: int = None,
                                       sleep_hours: float = None, chunk_size: int = None):
-    """Run the InvestigateReposWorkflow. Runs continuously every X hours.
-    
+    """Run the InvestigateReposWorkflow. Runs continuously every X hours unless single_run is enabled.
+
     Args:
         client: Temporal client instance
         force: If True, forces investigation of all repos ignoring cache on first iteration
+        single_run: If True, runs once and exits (for CI/CD environments like GitHub Actions)
         claude_model: Optional Claude model override
-        max_tokens: Optional max tokens override  
+        max_tokens: Optional max tokens override
         sleep_hours: Optional sleep hours override (supports fractional hours)
         chunk_size: Optional chunk size override (number of repos processed in parallel)
     """
     from datetime import datetime
-    
+
     task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "investigate-task-queue")
-    
+
     # Generate unique workflow ID with timestamp to avoid conflicts
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     workflow_id = f"investigate-repos-workflow-{timestamp}"
-    
+
     logger.info(f"Starting InvestigateReposWorkflow on task queue: {task_queue}")
     logger.info(f"Using workflow ID: {workflow_id}")
-    logger.info("Mode: Continuous (runs every X hours)")
-    
+
+    if single_run:
+        logger.info("Mode: Single-run (for CI/CD)")
+    else:
+        logger.info("Mode: Continuous (runs every X hours)")
+
     if force:
         logger.info("🚀 Force flag enabled - will force investigation of all repositories on first run")
-    
+
     # Create Pydantic request model instead of dictionary
     request = InvestigateReposRequest(
         force=force,
+        single_run=single_run,
         claude_model=claude_model,
         max_tokens=max_tokens,
         sleep_hours=sleep_hours,
@@ -241,11 +248,12 @@ async def main():
         if workflow_name == "investigate":
             # Parse configuration overrides from command line
             force = "--force" in sys.argv
+            single_run = "--single-run" in sys.argv
             claude_model = None
             max_tokens = None
             sleep_hours = None
             chunk_size = None
-            
+
             for arg in sys.argv[2:]:
                 if arg.startswith("--claude-model="):
                     claude_model = arg.split("=", 1)[1]
@@ -267,9 +275,10 @@ async def main():
                     except ValueError:
                         logger.error(f"Invalid chunk-size value: {arg.split('=', 1)[1]}. Must be an integer.")
                         return
-            
-            await run_investigate_repos_workflow(client, force=force, claude_model=claude_model, 
-                                               max_tokens=max_tokens, sleep_hours=sleep_hours, chunk_size=chunk_size)
+
+            await run_investigate_repos_workflow(client, force=force, single_run=single_run,
+                                               claude_model=claude_model, max_tokens=max_tokens,
+                                               sleep_hours=sleep_hours, chunk_size=chunk_size)
         elif workflow_name == "investigate-single":
             # Parse repository identifier and configuration overrides
             if len(sys.argv) < 3:
@@ -304,13 +313,14 @@ async def main():
         else:
             logger.error(f"Unknown workflow: {workflow_name}")
             logger.info("Available workflows: investigate, investigate-single")
-            logger.info("Usage: python client.py investigate [--force] [--claude-model=MODEL] [--max-tokens=NUM] [--sleep-hours=NUM] [--chunk-size=NUM]")
+            logger.info("Usage: python client.py investigate [--force] [--single-run] [--claude-model=MODEL] [--max-tokens=NUM] [--sleep-hours=NUM] [--chunk-size=NUM]")
             logger.info("Usage: python client.py investigate-single REPO_NAME_OR_URL [options]")
     else:
         # Default to investigate workflow
         logger.info("No arguments provided. Running investigate workflow.")
         logger.info("The workflow will run continuously every X hours.")
         logger.info("Use 'python client.py investigate --force' to force investigation of all repos.")
+        logger.info("Use 'python client.py investigate --single-run' for CI/CD (runs once and exits).")
         logger.info("Config overrides: --claude-model=MODEL --max-tokens=NUM --sleep-hours=NUM --chunk-size=NUM")
         logger.info("For single repository investigation: python client.py investigate-single REPO_NAME_OR_URL [options]")
         await run_investigate_repos_workflow(client)

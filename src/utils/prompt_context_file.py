@@ -413,10 +413,10 @@ class FileBasedPromptContextManager(PromptContextManagerBase):
     def get_latest_investigation(self, repository_name: str) -> Optional[Dict[str, Any]]:
         """
         Get the latest investigation metadata for a repository.
-        
+
         Args:
             repository_name: Name of the repository
-        
+
         Returns:
             Investigation metadata dictionary or None if not found
         """
@@ -427,7 +427,7 @@ class FileBasedPromptContextManager(PromptContextManagerBase):
                 analysis_type="investigation"
             )
             file_safe_key = metadata_key_obj.to_file_safe_key()
-            
+
             file_path = self._storage_dir / f"{file_safe_key}.json"
             if file_path.exists():
                 with open(file_path, 'r', encoding='utf-8') as f:
@@ -437,4 +437,74 @@ class FileBasedPromptContextManager(PromptContextManagerBase):
                 return None
         except Exception as e:
             logger.error(f"Failed to retrieve investigation metadata: {str(e)}")
+            return None
+
+    def save_temporary_analysis_data(self, reference_key: str, data_content: Any,
+                                     ttl_minutes: int = 60) -> Dict[str, Any]:
+        """
+        Save temporary analysis data to file storage.
+
+        Args:
+            reference_key: Unique reference key for this data
+            data_content: The data content to save (can be dict or string)
+            ttl_minutes: TTL in minutes (ignored in file implementation)
+
+        Returns:
+            Dictionary with save status
+        """
+        import time
+
+        try:
+            # Create a safe filename from the reference key
+            safe_key = reference_key.replace('/', '_').replace(':', '_')
+            file_path = self._storage_dir / f"_temp_{safe_key}.json"
+
+            # Prepare data
+            data = {
+                "reference_key": reference_key,
+                "data_content": data_content,
+                "timestamp": time.time()
+            }
+
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+
+            logger.info(f"Saved temporary analysis data to: {file_path}")
+
+            return {
+                "status": "success",
+                "reference_key": reference_key,
+                "timestamp": data["timestamp"]
+            }
+        except Exception as e:
+            logger.error(f"Failed to save temporary analysis data: {str(e)}")
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+
+    def get_temporary_analysis_data(self, reference_key: str) -> Optional[Any]:
+        """
+        Retrieve temporary analysis data from file storage.
+
+        Args:
+            reference_key: The unique reference key for the data
+
+        Returns:
+            The data content or None if not found
+        """
+        try:
+            # Create a safe filename from the reference key
+            safe_key = reference_key.replace('/', '_').replace(':', '_')
+            file_path = self._storage_dir / f"_temp_{safe_key}.json"
+
+            if file_path.exists():
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return data.get('data_content')
+            else:
+                logger.debug(f"No temporary data found for key: {reference_key}")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to retrieve temporary analysis data: {str(e)}")
             return None
